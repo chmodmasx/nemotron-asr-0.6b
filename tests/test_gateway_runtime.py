@@ -4,8 +4,10 @@ from pathlib import Path
 import subprocess
 import unittest
 
+from test_contract import compose_command
+
 ROOT = Path(__file__).resolve().parents[1]
-BASE = ["docker", "compose", "--env-file", "/dev/null", "-f", str(ROOT / "compose.dev.yaml")]
+BASE = compose_command()
 
 
 class GatewayRuntimeContract(unittest.TestCase):

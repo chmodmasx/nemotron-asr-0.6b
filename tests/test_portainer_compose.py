@@ -46,16 +46,13 @@ class PortainerComposeContract(unittest.TestCase):
                 self.assertNotEqual(result.returncode, 0)
                 self.assertIn("ASR_API_KEY", result.stderr)
 
-    def test_development_compose_also_needs_no_env(self):
-        dev = ROOT / "compose.dev.yaml"
-        self.assertNotIn("${", dev.read_text())
-        env = {k: v for k, v in os.environ.items() if not k.startswith("ASR_")}
-        result = subprocess.run(
-            ["docker", "compose", "--env-file", "/dev/null", "-f", str(dev), "config", "--format", "json"],
-            cwd=ROOT, env=env, capture_output=True, text=True,
-        )
-        self.assertEqual(result.returncode, 0, result.stderr)
-        self.assertEqual(set(json.loads(result.stdout)["services"]), {"engine", "gateway"})
+    def test_only_deployment_compose_and_separate_build_commands(self):
+        self.assertEqual({p.name for p in ROOT.glob("compose*.yaml")}, {"compose.yaml"})
+        script = (ROOT / "build.sh").read_text()
+        self.assertIn("docker build --tag nemotron-asr-engine:0.1.0-cuda ./engine", script)
+        self.assertIn("docker build --tag nemotron-asr-gateway:0.4.0 ./gateway", script)
+        self.assertNotIn("docker compose", script)
+        self.assertNotIn("docker push", script)
 
     def test_model_and_key_are_persistent_but_not_published(self):
         data = self.render()
@@ -75,7 +72,7 @@ class PortainerComposeContract(unittest.TestCase):
         self.assertEqual(set(services["gateway"]["networks"]), {"internal", "public"})
         self.assertEqual(services["gateway"]["ports"][0]["host_ip"], "0.0.0.0")
         self.assertEqual(services["gateway"]["ports"][0]["published"], "18090")
-        self.assertEqual({p.name for p in ROOT.glob("compose*.yaml")}, {"compose.yaml", "compose.dev.yaml"})
+        self.assertEqual({p.name for p in ROOT.glob("compose*.yaml")}, {"compose.yaml"})
 
 
 if __name__ == "__main__":

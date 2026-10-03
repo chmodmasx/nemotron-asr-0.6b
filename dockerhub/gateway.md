@@ -13,11 +13,15 @@ environment:
   ASR_API_KEY: '${ASR_API_KEY:?Defini ASR_API_KEY en Portainer o en el entorno}'
 ```
 
-La propia pasarela descarga/verifica el GGUF y prepara los volúmenes Docker antes de arrancar su API como usuario sin privilegios. El motor espera esa preparación. **`ASR_API_KEY` tiene prioridad sobre `/run/asr-auth/api_key` y no modifica ese archivo.** Solo si la variable está ausente en el runtime se usa la clave persistente, generada automáticamente si hace falta. Una variable presente pero vacía o con whitespace/caracteres de control falla cerrada, sin fallback. El Compose público exige la variable; desarrollo y sus pruebas conservan la clave automática sin variable de clave. Puerto interno `8080`; el Compose publica `0.0.0.0:18090` (todas las interfaces del host).
+La propia pasarela descarga/verifica el GGUF y prepara los volúmenes Docker antes de arrancar su API como usuario sin privilegios. El motor espera esa preparación. **`ASR_API_KEY` tiene prioridad sobre `/run/asr-auth/api_key` y no modifica ese archivo.** Solo si la variable está ausente en el runtime se usa la clave persistente, generada automáticamente si hace falta. Una variable presente pero vacía o con whitespace/caracteres de control falla cerrada, sin fallback. El Compose público exige la variable. Puerto interno `8080`; el Compose publica `0.0.0.0:18090` (todas las interfaces del host).
 
 Al actualizar, editar **el mismo stack**, definir `ASR_API_KEY`, volver a descargar la imagen `0.4.0` y conservar sus volúmenes `model` y `auth`; retirar el antiguo `bootstrap` con **Prune services** solo si todavía existe. No borrar el stack ni los volúmenes. Leer el archivo del volumen puede devolver una **clave antigua**, no la efectiva mientras exista el override. Los clientes deben usar la clave configurada en `ASR_API_KEY`.
 
 La clave y el GGUF quedan **fuera de las imágenes y de GitHub**. No pegar el secreto en el YAML público, logs ni chat. Usar una clave larga y aleatoria de caracteres ASCII imprimibles, sin espacios ni caracteres de control. Las variables son visibles para administradores de Docker/Portainer: no equivalen a Docker Secrets. El [README principal](https://github.com/chmodmasx/nemotron-asr-0.6b#readme) explica cómo suministrar la clave privada en Portainer, conservar los volúmenes durante una migración y conectar el STT de Hermes usando su `.env` privado (independiente del stack).
+
+## Construcción local
+
+El repositorio tiene un único `compose.yaml` para despliegue. Para construir las dos imágenes locales, usar [`build.sh`](https://github.com/chmodmasx/nemotron-asr-0.6b/blob/main/build.sh) con `sh ./build.sh`; contiene comandos `docker build` y no despliega ni publica contenedores/imágenes.
 
 ## Uso
 
