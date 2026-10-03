@@ -1,0 +1,63 @@
+# Portainer / Docker Standalone: no .env, placeholders or host bind mounts.
+# Gateway initializes the GGUF and private Bearer key in persistent volumes,
+# drops root privileges, then starts the API. The engine waits for this setup.
+services:
+  engine:
+    image: chmodmasx/nemotron-asr-engine:0.1.0-cuda
+    gpus: all
+    depends_on:
+      gateway:
+        condition: service_healthy
+    command:
+      - serve
+      - --host
+      - 0.0.0.0
+      - --port
+      - '8080'
+      - --asr-model
+      - /models/nemotron-3.5-asr-streaming-0.6b.q8_0.gguf
+      - --no-ui
+    volumes:
+      - model:/models:ro
+    read_only: true
+    tmpfs:
+      - /tmp:size=256m,mode=1777
+    healthcheck:
+      test: [CMD, nemo-speech, health, --quiet]
+      interval: 20s
+      timeout: 5s
+      retries: 6
+      start_period: 90s
+    restart: unless-stopped
+    networks: [internal]
+
+  gateway:
+    image: chmodmasx/nemotron-asr-gateway:0.3.0
+    user: "0:0" # Startup initializes volumes as root, then drops to 65532:65532.
+    volumes:
+      - model:/models
+      - auth:/run/asr-auth
+    ports:
+      - "0.0.0.0:18090:8080"
+    read_only: true
+    tmpfs:
+      - /tmp:size=384m,mode=1777
+    healthcheck:
+      # Local socket opens only after checksum/key initialization. /ready
+      # remains the separate end-to-end engine check once it has started.
+      test: [CMD, python, -c, "import socket;socket.create_connection(('127.0.0.1',8080),timeout=2).close()"]
+      interval: 10s
+      timeout: 3s
+      retries: 3
+      start_period: 10m
+    restart: unless-stopped
+    networks: [internal, public]
+
+networks:
+  internal:
+    internal: true
+  public:
+
+volumes:
+  model:
+  auth:
