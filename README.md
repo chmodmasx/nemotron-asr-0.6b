@@ -1,7 +1,5 @@
 # Nemotron 3.5 ASR para Docker y Portainer
 
-> **Versión actual:** dos contenedores (`gateway` + `engine`). Si ya tenés el stack anterior en Portainer, actualizá **ese mismo stack** para conservar sus volúmenes `model` y `auth`; no crees otro con el mismo puerto ni borres los volúmenes. El despliegue de Portainer lo hace el usuario.
-
 Servicio de **transcripción de voz en español** con HTTP para archivos/notas de voz y WebSocket para streaming. Ejecuta [NVIDIA Nemotron 3.5 ASR Streaming 0.6B](https://huggingface.co/nvidia/nemotron-3.5-asr-streaming-0.6b) mediante [NeMo-Speech.cpp](https://github.com/NVIDIA/NeMo-Speech.cpp), detrás de una pasarela que autentica peticiones y convierte formatos con FFmpeg.
 
 ```text
