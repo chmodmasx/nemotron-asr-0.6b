@@ -11,14 +11,14 @@ Cliente ── HTTP multipart / WebSocket ──► gateway (Bearer + FFmpeg)
                                    engine (CUDA + GGUF)
 ```
 
-- **Dos imágenes y dos contenedores:** [`chmodmasx/nemotron-asr-engine:0.1.0-cuda`](https://hub.docker.com/r/chmodmasx/nemotron-asr-engine) y [`chmodmasx/nemotron-asr-gateway:0.3.0`](https://hub.docker.com/r/chmodmasx/nemotron-asr-gateway) (`linux/amd64`). No hay un tercer contenedor `bootstrap`.
-- **Un solo Compose sin `.env` ni variables de stack:** `gateway` descarga/verifica el GGUF Q8 y prepara la clave Bearer en volúmenes persistentes; luego abandona privilegios de root y arranca la API. `engine` espera a que la pasarela indique que terminó esa preparación. El motor monta el modelo en solo lectura y no publica puerto al host. Ni pesos ni claves se incluyen en las imágenes o Git.
+- **Dos imágenes y dos contenedores:** [`chmodmasx/nemotron-asr-engine:0.1.0-cuda`](https://hub.docker.com/r/chmodmasx/nemotron-asr-engine) y [`chmodmasx/nemotron-asr-gateway:0.4.0`](https://hub.docker.com/r/chmodmasx/nemotron-asr-gateway) (`linux/amd64`). No hay un tercer contenedor `bootstrap`.
+- **Un solo Compose sin archivo `.env`, con `ASR_API_KEY` obligatoria:** en Portainer se define como variable del stack; desde CLI puede suministrarse en el entorno. `gateway` descarga/verifica el GGUF Q8 y prepara los volúmenes persistentes; luego abandona privilegios de root y arranca la API. La clave suministrada tiene prioridad sobre la del volumen, sin modificarla. `engine` espera a que la pasarela indique que terminó la preparación. El motor monta el modelo en solo lectura y no publica puerto al host. Ni pesos ni claves se incluyen en las imágenes o Git.
 - **Contrato acotado:** acepta un subconjunto de las transcripciones de audio de OpenAI. No expone `/v1/chat/completions`, no implementa OpenAI Realtime completo y no vuelve automáticamente compatibles a Hermes, OpenClaw u OpenCode.
 
 ## Archivos del proyecto
 
-- `compose.yaml`: despliegue con las dos imágenes publicadas; **no tiene `build:` ni variables externas**.
-- `compose.dev.yaml`: desarrollo local; construye desde `engine/` y `gateway/`, sin `.env`.
+- `compose.yaml`: despliegue con las dos imágenes publicadas; **no tiene `build:` y requiere la variable externa `ASR_API_KEY`**.
+- `compose.dev.yaml`: desarrollo local; construye desde `engine/` y `gateway/`, genera/reutiliza la clave persistente sin variable de clave ni `.env`.
 - `.env.example`: archivo histórico de la versión anterior; **no se necesita para ninguno de los dos Compose**.
 - `dockerhub/engine.md` y `dockerhub/gateway.md`: descripciones propias de cada imagen.
 - `tests/`: pruebas HTTP y contrato del Compose de Portainer.
@@ -50,7 +50,26 @@ curl -fsS -H 'Authorization: Bearer TU_CLAVE_GENERADA' \
   'http://SERVIDOR:18090/v1/audio/transcriptions'
 ```
 
-La clave del ejemplo se consulta en Portainer como se indica más abajo; **no copiarla al repositorio**. Sustituí `SERVIDOR` por el nombre o la dirección del equipo **solo en tu cliente**, no en este repositorio. Para un cliente que admite la API de audio de OpenAI, configurar URL base `http://SERVIDOR:18090/v1`, clave Bearer, ruta `/audio/transcriptions` y modelo `default`. **No** ofrece `/v1/chat/completions` ni otras rutas de LLM; tampoco se ha probado la integración directa con OpenClaw, OpenCode o Hermes. Cada harness podría necesitar un adaptador si no permite configurar su endpoint de STT por separado.
+La clave del ejemplo debe coincidir con la `ASR_API_KEY` configurada en el stack; **no copiarla al repositorio**. Sustituí `SERVIDOR` por el nombre o la dirección del equipo **solo en tu cliente**, no en este repositorio. Para un cliente que admite la API de audio de OpenAI, configurar URL base `http://SERVIDOR:18090/v1`, clave Bearer, ruta `/audio/transcriptions` y modelo `default`. **No** ofrece `/v1/chat/completions` ni otras rutas de LLM; no se garantiza compatibilidad automática con todos los harnesses. Cada uno podría necesitar un adaptador si no permite configurar su endpoint de STT por separado.
+
+### Hermes: STT de archivos contra un servidor existente
+
+Guardar la clave efectiva del servidor como `NEMOTRON_ASR_API_KEY` en el **`.env` privado del perfil Hermes** (default: `~/.hermes/.env`; confirmar con `hermes config env-path`). Ese archivo de credenciales del cliente es independiente del stack Docker, que **no necesita `.env`**. No guardar la clave literal en YAML ni reemplazar `OPENAI_API_KEY`.
+
+Sobre el perfil autorizado, y reemplazando `SERVIDOR` solo en el cliente:
+
+```bash
+hermes config set stt.enabled true
+hermes config set stt.provider openai
+hermes config set stt.openai.base_url http://SERVIDOR:18090/v1
+hermes config set stt.openai.api_key '${NEMOTRON_ASR_API_KEY}'
+hermes config set stt.openai.model default
+hermes config set stt.openai.language es
+hermes config set stt.openai.timeout 180
+hermes config set voice.client_direct false
+```
+
+Las comillas simples conservan la referencia privada sin expandir el secreto en el shell. Usar HTTPS o VPN fuera de una red confiable. `openai` designa el formato de la API, no requiere enviar el audio a OpenAI. `voice.client_direct=false` pone **STT y TTS** de Desktop en relay por el backend, sin cambiar el proveedor TTS. Nemotron no genera voz. En Desktop esta conexión corresponde a **chained**, no a GPT-Live ni a transcripción parcial en tiempo real; no cambiar el modo de voz sin autorización. Consultar la [documentación actual de Hermes](https://hermes-agent.nousresearch.com/docs/user-guide/features/tts), recargar el proceso autorizado que consume el perfil y verificar cada superficie con audio real; una prueba de script no demuestra que Telegram o el micrófono Desktop funcionen.
 
 ## Streaming
 
@@ -68,23 +87,30 @@ WebSocket: `ws://HOST:PUERTO/v1/audio/transcriptions/realtime`, con cabecera `Au
 
 ## Entrega para Portainer (Docker Standalone)
 
-[`compose.yaml`](compose.yaml) de `main` descarga las dos imágenes y **no tiene `build:`, `.env`, interpolaciones, bind mounts de host ni direcciones privadas fijadas**. Usar Docker Standalone con GPU NVIDIA; no se verificó en Swarm. **Publicar el archivo no actualiza por sí solo el stack de Portainer:** esa migración la realiza el usuario.
+[`compose.yaml`](compose.yaml) de `main` descarga las dos imágenes y **no tiene `build:`, archivo `.env`, bind mounts de host ni direcciones privadas fijadas**. Sí tiene una interpolación obligatoria para la clave del usuario:
 
-1. Para una instalación nueva, usar el Compose enlazado arriba. Si ya existe el stack `nemotron-asr`, actualizar **ese mismo stack** en Portainer con el Compose completo; no crear otro con el mismo puerto `18090`. No añadir variables ni un `.env`. Al editar el stack anterior, activar **Prune services** para retirar únicamente el antiguo contenedor `bootstrap` ya finalizado; **no** eliminar el stack ni sus volúmenes. Podría haber una interrupción breve.
-2. `gateway` inicializa el GGUF Q8 desde una revisión fijada de Hugging Face en un volumen persistente, comprueba SHA-256 `3fc991d3badad7277c11030a7519832cddaf2057aafed6d4b25147e953a070b1` y crea o reutiliza la clave en otro volumen. La primera descarga (~708 MiB en disco) necesita Internet; los siguientes inicios verifican el modelo guardado sin cambiar la clave. Si falla Internet o el checksum, la API no arranca y el motor queda bloqueado por la dependencia. El proceso de la API corre como UID/GID `65532`, no como root.
+```yaml
+environment:
+  ASR_API_KEY: '${ASR_API_KEY:?Defini ASR_API_KEY en Portainer o en el entorno}'
+```
+
+Usar Docker Standalone con GPU NVIDIA; no se verificó en Swarm. **Publicar el archivo no actualiza por sí solo el stack de Portainer:** esa migración la realiza el usuario.
+
+1. Para una instalación nueva, usar el Compose enlazado arriba. Si ya existe el stack `nemotron-asr`, actualizar **ese mismo stack** en Portainer con el Compose completo; no crear otro con el mismo puerto `18090`. En las variables de entorno del stack, definir **`ASR_API_KEY` (obligatoria)** con una clave privada no vacía, de caracteres ASCII imprimibles, sin espacios ni caracteres de control. No hace falta crear un `.env`. Al actualizar, activar la opción de volver a descargar las imágenes (**Pull latest image**) para obtener `chmodmasx/nemotron-asr-gateway:0.4.0`; el motor sigue en `0.1.0-cuda`. Si todavía existe el antiguo `bootstrap`, usar **Prune services** para retirarlo; **no** eliminar el stack ni sus volúmenes. Podría haber una interrupción breve.
+2. `gateway` inicializa el GGUF Q8 desde una revisión fijada de Hugging Face en el volumen `model` y comprueba SHA-256 `3fc991d3badad7277c11030a7519832cddaf2057aafed6d4b25147e953a070b1`. La primera descarga (~708 MiB en disco) necesita Internet; los siguientes inicios verifican el modelo guardado. El volumen `auth` se conserva, pero `ASR_API_KEY` tiene prioridad sobre `/run/asr-auth/api_key` **sin modificar ese archivo**. Solo si la variable está ausente en el runtime se usa el fallback persistente, generado automáticamente si hace falta (como en desarrollo). Una variable presente pero vacía o con whitespace/caracteres de control falla cerrada: no habilita el fallback. El Compose público exige la variable y rechaza ausencia o vacío antes de arrancar. Si falla Internet o el checksum, la API no arranca y el motor queda bloqueado por la dependencia. El proceso de la API corre como UID/GID `65532`, no como root.
 3. El puerto se publica como **`0.0.0.0:18090`** (todas las interfaces). Desde un cliente, probar `http://SERVIDOR:18090/ready`, reemplazando `SERVIDOR` por el host correspondiente **en el cliente**, no en GitHub. Ni el motor ni la clave quedan publicados como puertos.
-4. Para consultar la clave generada, abrir la **Console** del contenedor `gateway` en Portainer con `/bin/sh` y ejecutar `python -c "from pathlib import Path; print(Path('/run/asr-auth/api_key').read_text().strip())"`. Copiarla directamente al cliente: **no enviarla al chat ni subirla a GitHub**. El volumen `auth` la conserva entre reinicios; eliminarlo la invalida. Solo los administradores de Docker/Portainer pueden acceder a los volúmenes.
-5. Configurar en los clientes URL base `http://SERVIDOR:18090/v1`, esa clave Bearer, ruta `/audio/transcriptions` y modelo `default`; verificar cada integración real. `gateway` tiene acceso saliente para la descarga inicial y escritura en los volúmenes durante la preparación; tras bajar privilegios no puede reescribir modelo ni clave (`root:65532`, modo `0640` para la clave). El motor permanece en red interna y monta el modelo en solo lectura.
+4. Usar en los clientes la clave privada que configuraste como **`ASR_API_KEY`**; no enviarla al chat ni subirla a GitHub. Leer `/run/asr-auth/api_key` puede devolver una **clave antigua**, no la efectiva mientras exista el override. Conservar `auth`: guarda el fallback para un runtime sin variable, no una copia sincronizada del override. Solo los administradores de Docker/Portainer pueden acceder a los volúmenes y a la configuración del contenedor.
+5. Configurar en los clientes URL base `http://SERVIDOR:18090/v1`, la clave Bearer efectiva, ruta `/audio/transcriptions` y modelo `default`; verificar cada integración real. Si elegiste una clave distinta durante la actualización, actualizar también las credenciales privadas de los clientes (en Hermes, `NEMOTRON_ASR_API_KEY`). `gateway` tiene acceso saliente para la descarga inicial y escritura en los volúmenes durante la preparación; tras bajar privilegios no puede reescribir modelo ni clave persistente (`root:65532`, modo `0640` para el archivo de clave). El motor permanece en red interna y monta el modelo en solo lectura.
 
 El Compose de desarrollo usa **otro puerto** (`127.0.0.1:18091`) y otro proyecto/volúmenes, así que no compite por el puerto de Portainer. HTTP y WS en LAN transmiten el token sin cifrar: **no exponer a Internet sin VPN o TLS**. La sonda Docker de `gateway` significa «modelo/clave inicializados y puerto local abierto»; la ruta externa `/ready` comprueba *además* que el motor ya está listo. Conservar los volúmenes de Portainer durante cualquier actualización: contienen el modelo y la clave.
 
-**Si migrás desde la versión anterior:** mantener el nombre del stack para reutilizar sus volúmenes `model` y `auth`; actualizar la imagen a `gateway:0.3.0`, usar **Prune services** al quitar `bootstrap` y comprobar que queden dos contenedores, `/ready` y una transcripción. Esa opción retira el contenedor antiguo, **no** los volúmenes; no elegir «Delete stack» ni «remove volumes». La actualización puede interrumpir brevemente el servicio.
+**Si migrás desde la versión anterior:** mantener el nombre del stack para reutilizar sus volúmenes `model` y `auth`; definir `ASR_API_KEY`, actualizar a `gateway:0.4.0` y volver a descargar la imagen. El motor no cambia. Usar **Prune services** solo si hay que quitar `bootstrap` y comprobar que queden dos contenedores, `/ready` y una transcripción autenticada con la clave configurada. Esa opción retira el contenedor antiguo, **no** los volúmenes; no elegir «Delete stack» ni «remove volumes». La actualización puede interrumpir brevemente el servicio.
 
-La sintaxis se comprueba sin variables con `docker compose --env-file /dev/null -f compose.yaml config --quiet`. Eso **no demuestra un despliegue desde la UI de Portainer**; esa verificación corresponde a la instalación que realice el usuario.
+Desde CLI, suministrar `ASR_API_KEY` en el entorno mediante un canal privado (sin escribirla en el historial) antes de `docker compose --env-file /dev/null -f compose.yaml config --quiet` o `docker compose --env-file /dev/null -f compose.yaml up -d --pull always`. No hace falta un archivo `.env`. Una comprobación de sintaxis **no demuestra un despliegue desde la UI de Portainer**; esa verificación corresponde a la instalación que realice el usuario. Desarrollo y sus pruebas mantienen la clave automática sin variable de clave.
 
 ## Docker Hub y procedencia
 
-Las dos imágenes se distribuyen **sin GGUF ni claves**. Los contextos de construcción se limitan a `./engine` y `./gateway`: ni `.env` ni `models/` entran en las imágenes. Los avisos de licencia del binario NVIDIA viajan en el paquete de runtime. El Dockerfile del motor verifica SHA-256 del release CUDA oficial; la inicialización dentro de `gateway` verifica el GGUF antes de montarlo. El usuario no tiene que indicar rutas de host ni generar claves por su cuenta.
+Las dos imágenes se distribuyen **sin GGUF ni claves**. Los contextos de construcción se limitan a `./engine` y `./gateway`: ni `.env` ni `models/` entran en las imágenes. Los avisos de licencia del binario NVIDIA viajan en el paquete de runtime. El Dockerfile del motor verifica SHA-256 del release CUDA oficial; la inicialización dentro de `gateway` verifica el GGUF antes de montarlo. El usuario no tiene que indicar rutas de host; en el stack público sí debe suministrar su clave privada mediante `ASR_API_KEY`.
 
 [Descripción del motor en Docker Hub](https://hub.docker.com/r/chmodmasx/nemotron-asr-engine) · [Descripción de la pasarela en Docker Hub](https://hub.docker.com/r/chmodmasx/nemotron-asr-gateway) · [Código fuente en GitHub](https://github.com/chmodmasx/nemotron-asr-0.6b).
 

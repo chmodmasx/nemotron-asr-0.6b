@@ -7,11 +7,11 @@ ROOT = Path(__file__).resolve().parents[1]
 SCRIPT = '''
 import asyncio
 import json
-from pathlib import Path
+import proxy
 from aiohttp import ClientSession, WSMsgType
 
 async def run():
-    key = Path('/run/asr-auth/api_key').read_text().strip()
+    key = proxy.API_KEY
     async with ClientSession() as session:
         async with session.ws_connect(
             'http://127.0.0.1:8080/v1/audio/transcriptions/realtime',

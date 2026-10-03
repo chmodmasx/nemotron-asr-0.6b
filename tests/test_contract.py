@@ -18,12 +18,13 @@ BASE = os.getenv("ASR_BASE_URL", "http://127.0.0.1:18091").rstrip("/")
 
 @lru_cache(maxsize=1)
 def api_key():
-    """Read the generated test key without logging it or needing a .env file."""
+    """Read the effective test key without logging it or needing a .env file."""
     compose = os.getenv("ASR_TEST_COMPOSE", str(ROOT / "compose.dev.yaml"))
     result = subprocess.run(
+        # Capture the effective key privately: an environment override may differ from the file.
         ["docker", "compose", "--env-file", "/dev/null", "-f", compose,
          "exec", "-T", "gateway", "python", "-c",
-         "from pathlib import Path; print(Path('/run/asr-auth/api_key').read_text().strip())"],
+         "import proxy; print(proxy.API_KEY)"],
         capture_output=True, text=True, timeout=20,
     )
     if result.returncode != 0:

@@ -12,13 +12,19 @@ ENGINE = os.getenv("ASR_ENGINE_URL", "http://engine:8080").rstrip("/")
 
 
 def load_api_key():
+    # A user-selected key must take priority without rotating the fallback volume.
+    if "ASR_API_KEY" in os.environ:
+        key = os.environ["ASR_API_KEY"]
+        if not key or any(char.isspace() or ord(char) < 33 or ord(char) > 126 for char in key):
+            raise RuntimeError("ASR_API_KEY must be a nonempty printable ASCII token without whitespace")
+        return key
     key_file = Path(os.getenv("ASR_API_KEY_FILE", "/run/asr-auth/api_key"))
     if os.getenv("ASR_API_KEY_FILE") or key_file.exists():
         key = key_file.read_text(encoding="utf-8").strip()
         if not key:
             raise RuntimeError("API key file is empty")
         return key
-    return os.environ["ASR_API_KEY"]  # legacy development compose; fail closed when absent
+    return os.environ["ASR_API_KEY"]  # no source available: fail closed
 
 
 API_KEY = load_api_key()

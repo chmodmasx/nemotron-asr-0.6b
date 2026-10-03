@@ -1,14 +1,23 @@
 # Nemotron 3.5 ASR · pasarela de audio
 
-**Imagen:** `chmodmasx/nemotron-asr-gateway:0.3.0` · `linux/amd64`. El tag `0.2.0` corresponde al Compose anterior de tres contenedores; no mezclar configuraciones.
+**Imagen:** `chmodmasx/nemotron-asr-gateway:0.4.0` · `linux/amd64`. El tag `0.2.0` corresponde al Compose anterior de tres contenedores; no mezclar configuraciones. El motor sigue en `chmodmasx/nemotron-asr-engine:0.1.0-cuda`.
 
 Esta pasarela recibe notas de voz y archivos mediante un subconjunto de la API de transcripción de audio de OpenAI, usa FFmpeg para convertirlos a WAV PCM16 mono de 16 kHz y los envía al [motor CUDA](https://hub.docker.com/r/chmodmasx/nemotron-asr-engine) de [Nemotron 3.5 ASR Streaming 0.6B](https://huggingface.co/nvidia/nemotron-3.5-asr-streaming-0.6b). Probados WAV, MP3 y OGG/Opus. Los formatos adicionales dependen de los decodificadores instalados en FFmpeg.
 
 ## Despliegue recomendado
 
-No ejecutar esta imagen sola: necesita un motor ASR. El [Compose de dos contenedores en `main`](https://github.com/chmodmasx/nemotron-asr-0.6b/blob/main/compose.yaml) despliega motor y pasarela **sin `.env`, variables de stack ni un contenedor `bootstrap`**. La propia pasarela descarga/verifica el GGUF y genera o reutiliza la clave Bearer privada en volúmenes Docker antes de arrancar su API como usuario sin privilegios. El motor espera esa preparación. La pasarela lee la clave desde `/run/asr-auth/api_key`, no desde el YAML público. Puerto interno `8080`; el Compose publica `0.0.0.0:18090` (todas las interfaces del host). Al actualizar un stack anterior, conservar sus volúmenes y retirar el antiguo `bootstrap` desde Portainer.
+No ejecutar esta imagen sola: necesita un motor ASR. El [Compose de dos contenedores en `main`](https://github.com/chmodmasx/nemotron-asr-0.6b/blob/main/compose.yaml) despliega motor y pasarela **sin archivo `.env` ni un contenedor `bootstrap`**, pero requiere **`ASR_API_KEY`** como variable del stack Portainer o del entorno CLI:
 
-La clave y el GGUF quedan **fuera de las imágenes y de GitHub**. El [README principal](https://github.com/chmodmasx/nemotron-asr-0.6b#readme) explica cómo consultar la clave en Portainer y conservar los volúmenes durante una migración.
+```yaml
+environment:
+  ASR_API_KEY: '${ASR_API_KEY:?Defini ASR_API_KEY en Portainer o en el entorno}'
+```
+
+La propia pasarela descarga/verifica el GGUF y prepara los volúmenes Docker antes de arrancar su API como usuario sin privilegios. El motor espera esa preparación. **`ASR_API_KEY` tiene prioridad sobre `/run/asr-auth/api_key` y no modifica ese archivo.** Solo si la variable está ausente en el runtime se usa la clave persistente, generada automáticamente si hace falta. Una variable presente pero vacía o con whitespace/caracteres de control falla cerrada, sin fallback. El Compose público exige la variable; desarrollo y sus pruebas conservan la clave automática sin variable de clave. Puerto interno `8080`; el Compose publica `0.0.0.0:18090` (todas las interfaces del host).
+
+Al actualizar, editar **el mismo stack**, definir `ASR_API_KEY`, volver a descargar la imagen `0.4.0` y conservar sus volúmenes `model` y `auth`; retirar el antiguo `bootstrap` con **Prune services** solo si todavía existe. No borrar el stack ni los volúmenes. Leer el archivo del volumen puede devolver una **clave antigua**, no la efectiva mientras exista el override. Los clientes deben usar la clave configurada en `ASR_API_KEY`.
+
+La clave y el GGUF quedan **fuera de las imágenes y de GitHub**. No pegar el secreto en el YAML público, logs ni chat. Usar una clave larga y aleatoria de caracteres ASCII imprimibles, sin espacios ni caracteres de control. Las variables son visibles para administradores de Docker/Portainer: no equivalen a Docker Secrets. El [README principal](https://github.com/chmodmasx/nemotron-asr-0.6b#readme) explica cómo suministrar la clave privada en Portainer, conservar los volúmenes durante una migración y conectar el STT de Hermes usando su `.env` privado (independiente del stack).
 
 ## Uso
 

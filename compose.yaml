@@ -1,6 +1,6 @@
-# Portainer / Docker Standalone: no .env, placeholders or host bind mounts.
-# Gateway initializes the GGUF and private Bearer key in persistent volumes,
-# drops root privileges, then starts the API. The engine waits for this setup.
+# Portainer / Docker Standalone: set ASR_API_KEY in stack variables, no .env needed.
+# Gateway initializes the GGUF and fallback key in persistent volumes.
+# ASR_API_KEY overrides the fallback without modifying its stored value.
 services:
   engine:
     image: chmodmasx/nemotron-asr-engine:0.1.0-cuda
@@ -32,7 +32,9 @@ services:
     networks: [internal]
 
   gateway:
-    image: chmodmasx/nemotron-asr-gateway:0.3.0
+    image: chmodmasx/nemotron-asr-gateway:0.4.0
+    environment:
+      ASR_API_KEY: "${ASR_API_KEY:?Defini ASR_API_KEY en Portainer o en el entorno}"
     user: "0:0" # Startup initializes volumes as root, then drops to 65532:65532.
     volumes:
       - model:/models

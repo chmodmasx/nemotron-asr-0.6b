@@ -33,7 +33,7 @@ services:
     networks: [internal]
 
   gateway:
-    image: nemotron-asr-gateway:0.3.0
+    image: nemotron-asr-gateway:0.4.0
     build: ./gateway
     user: "0:0"
     volumes:
